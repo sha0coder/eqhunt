@@ -1,0 +1,39 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "eqhunt"
+version = "0.0.3"
+description = "Symbolic regression by genetic programming (C++ engine, Python bindings)"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "sha0coder" }]
+keywords = [
+    "symbolic-regression",
+    "genetic-programming",
+    "equation-discovery",
+    "machine-learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.urls]
+Homepage = "https://github.com/sha0coder/eqhunt"
+Issues = "https://github.com/sha0coder/eqhunt/issues"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.expand-macos-universal-tags = true
+wheel.packages = ["src/eqhunt"]
+sdist.include = ["src/**", "CMakeLists.txt", "pyproject.toml", "README.md"]
