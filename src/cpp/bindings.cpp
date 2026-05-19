@@ -72,6 +72,9 @@ NB_MODULE(_core, m) {
              "Return the formula as a human-readable string.")
         .def("total_error",  &Formula::total_error,  "data"_a,
              "Return the sum of |pred - target| over the dataset.")
+        .def("load",         &Formula::load,         "formula"_a,
+             "Reload the model from a textual formula (same syntax as get_formula()). "
+             "Replaces the current trained tree, no training needed.")
         .def_prop_ro("num_vars", &Formula::num_vars)
         .def_prop_ro("formula",  &Formula::get_formula);
 }

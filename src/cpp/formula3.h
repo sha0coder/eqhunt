@@ -65,6 +65,12 @@ public:
     int                   num_vars() const;
     double                total_error(const std::vector<Sample>& data) const;
 
+    // Parse a textual formula (in the same syntax as get_formula()) and store
+    // it as the current model. Accepts both bare expressions ("(x+y)") and
+    // prefixed forms ("f(x,y) = (x+y)"). Throws std::runtime_error on parse
+    // failure. numVars is set from the highest variable index seen.
+    void load(const std::string& formula);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> pimpl_;

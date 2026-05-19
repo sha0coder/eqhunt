@@ -108,6 +108,51 @@ ignored otherwise. Adjust via `Config.op_weights`.
 the threshold. You can also call `model.stop()` from another thread (or a
 signal handler) to ask the loop to wrap up after the current generation.
 
+## Saving and reloading a formula
+
+A trained model is just a string — you can persist it, ship it, paste it,
+diff it. To reuse a formula in a new process without retraining, parse it
+back into a `Model`:
+
+```python
+import eqhunt
+
+# train and save
+m = eqhunt.fit(X, y)
+print(m.formula)          # e.g.  f(x,y) = ((x*x) - (y*y))
+m.save("model.txt")       # one-liner persisted
+
+# later, in a fresh process — no training needed
+m2 = eqhunt.Model.load_file("model.txt")
+m2.predict([6, 7])        # -13.0
+m2.predict([[1, 2], [3, 4]])
+```
+
+You can also go through strings directly:
+
+```python
+formula_str = m.formula                   # or any equivalent expression
+m3 = eqhunt.Model.from_formula(formula_str)
+m3.predict([12, 5])
+```
+
+Or mutate an existing model in place:
+
+```python
+m.load_formula("(x*x + y*y)")             # replaces the current tree
+```
+
+Accepted syntax: anything the engine itself emits via `get_formula()` —
+arithmetic (`+ - * / **`), unary minus, `sqrt sin cos tan log exp if`,
+variables `x y z w v u x6 x7 …`, numeric literals (int / float / `1e5`),
+and `pi`. Both the bare expression (`"(x+y)"`) and the full prefixed form
+(`"f(x,y) = (x+y)"`) are accepted; the parser strips everything up to and
+including the first `=`. Parse errors raise `RuntimeError`.
+
+The number of input variables is inferred from the highest variable index
+in the formula, so `m2.num_vars` is set correctly without needing to know
+it in advance.
+
 ## Config reference
 
 | Field                | Default | Meaning                                              |

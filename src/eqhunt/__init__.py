@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Sequence, Union
 
 from ._core import Config, Formula as _Formula, OpWeights, Sample
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 __all__ = ["fit", "Model", "Config", "OpWeights", "Sample"]
 
 
@@ -144,6 +144,38 @@ class Model:
 
     def total_error(self, X: Sequence, y: Sequence[Number]) -> float:
         return self._impl.total_error(_to_samples(X, y))
+
+    # ---- save / load --------------------------------------------------------
+
+    def load_formula(self, formula_str: str) -> "Model":
+        """Replace the current trained tree with one parsed from a string.
+
+        Accepts both bare expressions ("(x*x - y*y)") and the full
+        get_formula() output ("f(x,y) = (x*x - y*y)"). Returns self so it can
+        be chained. No training is performed.
+        """
+        self._impl.load(formula_str)
+        self.error = None
+        self.n_samples = 0
+        return self
+
+    def save(self, path: str) -> None:
+        """Write the current formula to a text file."""
+        from pathlib import Path
+        Path(path).write_text(self.formula)
+
+    @classmethod
+    def from_formula(cls, formula_str: str, config: Optional[Config] = None) -> "Model":
+        """Create a Model directly from a formula string, no training needed."""
+        m = cls(config)
+        m.load_formula(formula_str)
+        return m
+
+    @classmethod
+    def load_file(cls, path: str, config: Optional[Config] = None) -> "Model":
+        """Create a Model by reading a formula from a text file."""
+        from pathlib import Path
+        return cls.from_formula(Path(path).read_text(), config)
 
     # ---- repr --------------------------------------------------------------
 

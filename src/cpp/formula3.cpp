@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -419,6 +420,220 @@ std::vector<Sample> loadCsv(const std::string& path, int& numVars) {
     return data;
 }
 
+// ====== formula-string parser ======================================
+// Recursive-descent parser that rebuilds a Node tree from the textual
+// representation produced by toString(). Accepts the toString output
+// directly, including an optional "f(x,y) = " prefix.
+
+int maxVarIndex(const Node& n) {
+    int m = (n.kind == Node::Var) ? (int)n.value : -1;
+    if (n.lhs)   m = std::max(m, maxVarIndex(*n.lhs));
+    if (n.rhs)   m = std::max(m, maxVarIndex(*n.rhs));
+    if (n.third) m = std::max(m, maxVarIndex(*n.third));
+    return m;
+}
+
+struct Parser {
+    const std::string& s;
+    size_t p = 0;
+    explicit Parser(const std::string& src) : s(src) {}
+
+    [[noreturn]] void fail(const std::string& msg) const {
+        throw std::runtime_error("parse error at " + std::to_string(p) + ": " + msg);
+    }
+
+    void skipWs() {
+        while (p < s.size() && std::isspace(static_cast<unsigned char>(s[p]))) ++p;
+    }
+    bool eof()            { skipWs(); return p >= s.size(); }
+    bool peek(char c)     { skipWs(); return p < s.size() && s[p] == c; }
+    bool peek2(char a, char b) {
+        skipWs();
+        return p + 1 < s.size() && s[p] == a && s[p + 1] == b;
+    }
+    bool eat(char c)      { if (peek(c)) { ++p; return true; } return false; }
+    void expect(char c)   { if (!eat(c)) fail(std::string("expected '") + c + "'"); }
+
+    NodePtr parseExpr() {
+        auto left = parseTerm();
+        while (true) {
+            skipWs();
+            if (peek('+')) { ++p; auto r = parseTerm();
+                auto n = std::make_unique<Node>();
+                n->kind = Node::Add; n->lhs = std::move(left); n->rhs = std::move(r);
+                left = std::move(n);
+            } else if (peek('-')) { ++p; auto r = parseTerm();
+                auto n = std::make_unique<Node>();
+                n->kind = Node::Sub; n->lhs = std::move(left); n->rhs = std::move(r);
+                left = std::move(n);
+            } else break;
+        }
+        return left;
+    }
+
+    NodePtr parseTerm() {
+        auto left = parsePower();
+        while (true) {
+            skipWs();
+            if (peek2('*', '*')) break;   // ** belongs to parsePower
+            if (peek('*')) { ++p; auto r = parsePower();
+                auto n = std::make_unique<Node>();
+                n->kind = Node::Mul; n->lhs = std::move(left); n->rhs = std::move(r);
+                left = std::move(n);
+            } else if (peek('/')) { ++p; auto r = parsePower();
+                auto n = std::make_unique<Node>();
+                n->kind = Node::Div; n->lhs = std::move(left); n->rhs = std::move(r);
+                left = std::move(n);
+            } else break;
+        }
+        return left;
+    }
+
+    NodePtr parsePower() {
+        auto left = parseUnary();
+        skipWs();
+        if (peek2('*', '*')) {
+            p += 2;
+            auto r = parsePower();   // right-associative
+            auto n = std::make_unique<Node>();
+            n->kind = Node::Pow; n->lhs = std::move(left); n->rhs = std::move(r);
+            return n;
+        }
+        return left;
+    }
+
+    NodePtr parseUnary() {
+        skipWs();
+        if (peek('-')) {
+            ++p;
+            auto inner = parseUnary();
+            auto n = std::make_unique<Node>();
+            n->kind = Node::Neg;
+            n->lhs  = std::move(inner);
+            return n;
+        }
+        if (peek('+')) { ++p; return parseUnary(); }
+        return parseAtom();
+    }
+
+    NodePtr parseAtom() {
+        skipWs();
+        if (eof()) fail("unexpected end of input");
+        char c = s[p];
+        if (c == '(') {
+            ++p;
+            auto e = parseExpr();
+            expect(')');
+            return e;
+        }
+        if (std::isdigit(static_cast<unsigned char>(c)) || c == '.') {
+            return parseNumber();
+        }
+        if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+            return parseIdentOrCall();
+        }
+        fail(std::string("unexpected character '") + c + "'");
+    }
+
+    NodePtr parseNumber() {
+        size_t start = p;
+        bool seenDot = false, seenExp = false;
+        while (p < s.size()) {
+            char c = s[p];
+            if (std::isdigit(static_cast<unsigned char>(c))) { ++p; continue; }
+            if (c == '.' && !seenDot && !seenExp) { seenDot = true; ++p; continue; }
+            if ((c == 'e' || c == 'E') && !seenExp) {
+                seenExp = true; ++p;
+                if (p < s.size() && (s[p] == '+' || s[p] == '-')) ++p;
+                continue;
+            }
+            break;
+        }
+        double v = std::stod(s.substr(start, p - start));
+        auto n = std::make_unique<Node>();
+        n->kind  = Node::Num;
+        n->value = v;
+        return n;
+    }
+
+    NodePtr parseIdentOrCall() {
+        size_t start = p;
+        while (p < s.size() &&
+               (std::isalnum(static_cast<unsigned char>(s[p])) || s[p] == '_'))
+            ++p;
+        std::string id = s.substr(start, p - start);
+        skipWs();
+        if (peek('(')) {
+            ++p;
+            std::vector<NodePtr> args;
+            skipWs();
+            if (!peek(')')) {
+                args.push_back(parseExpr());
+                while (eat(',')) args.push_back(parseExpr());
+            }
+            expect(')');
+            return buildCall(id, std::move(args));
+        }
+        return buildIdent(id);
+    }
+
+    NodePtr buildCall(const std::string& name, std::vector<NodePtr> args) {
+        auto n = std::make_unique<Node>();
+        auto unary = [&](Node::Kind k) {
+            if (args.size() != 1) fail(name + " takes 1 argument");
+            n->kind = k; n->lhs = std::move(args[0]);
+            return std::move(n);
+        };
+        if (name == "sqrt") return unary(Node::Sqrt);
+        if (name == "sin")  return unary(Node::Sin);
+        if (name == "cos")  return unary(Node::Cos);
+        if (name == "tan")  return unary(Node::Tan);
+        if (name == "log")  return unary(Node::Log);
+        if (name == "exp")  return unary(Node::Exp);
+        if (name == "if") {
+            if (args.size() != 3) fail("if takes 3 arguments (cond, then, else)");
+            n->kind  = Node::If;
+            n->lhs   = std::move(args[0]);
+            n->rhs   = std::move(args[1]);
+            n->third = std::move(args[2]);
+            return n;
+        }
+        fail("unknown function: " + name);
+    }
+
+    NodePtr buildIdent(const std::string& id) {
+        auto n = std::make_unique<Node>();
+        if (id == "pi") { n->kind = Node::Pi; return n; }
+        int idx = -1;
+        if      (id == "x") idx = 0;
+        else if (id == "y") idx = 1;
+        else if (id == "z") idx = 2;
+        else if (id == "w") idx = 3;
+        else if (id == "v") idx = 4;
+        else if (id == "u") idx = 5;
+        else if (id.size() > 1 && id[0] == 'x') {
+            try { idx = std::stoi(id.substr(1)); } catch (...) { idx = -1; }
+        }
+        if (idx < 0) fail("unknown identifier: " + id);
+        n->kind  = Node::Var;
+        n->value = static_cast<double>(idx);
+        return n;
+    }
+};
+
+NodePtr parseFormula(const std::string& formula, int& numVarsOut) {
+    std::string s = formula;
+    // strip optional "f(...) = " prefix
+    auto eq = s.find('=');
+    if (eq != std::string::npos) s = s.substr(eq + 1);
+    Parser parser(s);
+    NodePtr tree = parser.parseExpr();
+    if (!parser.eof()) parser.fail("trailing characters after expression");
+    int m = maxVarIndex(*tree);
+    numVarsOut = std::max(m + 1, 0);
+    return tree;
+}
+
 }  // namespace
 
 // ====== PIMPL ======
@@ -611,6 +826,13 @@ std::string Formula::get_formula() const {
 
 int Formula::num_vars() const {
     return pimpl_->numVars;
+}
+
+void Formula::load(const std::string& formula) {
+    int nv = 0;
+    NodePtr tree = parseFormula(formula, nv);
+    pimpl_->best    = std::move(tree);
+    pimpl_->numVars = nv;
 }
 
 double Formula::total_error(const std::vector<Sample>& data) const {
