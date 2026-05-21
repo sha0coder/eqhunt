@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Sequence, Union
 
 from ._core import Config, Formula as _Formula, OpWeights, Sample
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 __all__ = ["fit", "Model", "Config", "OpWeights", "Sample"]
 
 

@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "eqhunt"
-version = "0.0.4"
+version = "0.0.5"
 description = "Symbolic regression by genetic programming (C++ engine, Python bindings)"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.8"
